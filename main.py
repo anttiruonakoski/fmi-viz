@@ -18,10 +18,10 @@ env_test = False
 
 if __name__ == "__main__":
 
-	df = fetch_dataframe()
+	df = pd.read_pickle("./tmp/dummy.pkl")
+	#df = fetch_dataframe()
 
-	#print (df)
-	#print (df.describe(include='all'))
+	print (df.describe(include='all'))
 	output_file("x.html")
 
 	source = ColumnDataSource(df)

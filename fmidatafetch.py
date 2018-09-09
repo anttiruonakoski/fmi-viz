@@ -16,6 +16,8 @@ import pandas as pd
 #import copy
 #from pprint import pprint
 import argparse
+from datetime import date
+from collections import namedtuple
 
 apikey_filename = 'apikey'
 
@@ -44,13 +46,14 @@ namespaces = {
 
 stations = ['100949']
 #stations = ['101920', '101933', '101065','100949']
-storedquery_monthly = 'fmi::observations::weather::monthly::timevaluepair'
-storedquery_daily = 'fmi::observations::weather::daily::timevaluepair'
+storedquery = namedtuple ('storedquery', 'queryname maxinterval')
+storedquery_monthly = storedquery('fmi::observations::weather::monthly::timevaluepair', 87600)
+storedquery_daily = storedquery('fmi::observations::weather::daily::timevaluepair', 100000) # correct this once known
+storedquery_used = storedquery_monthly
 
 # some sane defaults
 storedqueryparams = {'starttime' : '2015-01-01T00:00:00Z', 'fmisid': '101933'}
-
-storedqueryid = storedquery_monthly
+storedqueryparams['endtime'] = str(date.today())
 
 query_specs = {}
 
@@ -69,10 +72,18 @@ def init_connection(apikey):
 	except Exception as e:
 		print ('error in WFS connection', e)
 
+def calculate_parts(maxinterval='storedquery_used.maxinterval', starttime='starttime', endtime='endtime', *args):
+	if maxinterval < int(hours(starttime - endtime)):
+		#chunck
+		return list(chuncks)
+	else:
+		return list(chunck)
+
 def get_features(connection, storedqueryparams):
 	try:
-		r = connection.getfeature(storedQueryID = storedqueryid, storedQueryParams = storedqueryparams)
-		#(storedQueryID='fmi::observations::weather::monthly::simple', storedQueryParams={'fmisid':'101928'}
+		#calculate_parts(storedquery_used, storedqueryparams)
+		r = connection.getfeature(storedQueryID = storedquery_used.queryname, storedQueryParams = storedqueryparams)
+		#alt format
 		#r = connection.getfeature(storedQueryID='fmi::observations::weather::monthly::simple', storedQueryParams={'fmisid':'101928'})
 		print ('get features ok')
 		return r
@@ -82,7 +93,7 @@ def get_features(connection, storedqueryparams):
 		#<ExceptionText>No more than 87600.000000 hours allowed.</ExceptionText>
 
 	except Exception as e:
-		print ('error getting WFS features', wfs_connection, storedqueryid, storedqueryparams, e)
+		print ('error getting WFS features', wfs_connection, storedquery_used.queryname, storedqueryparams, e)
 
 def pull_namespaces(result):
 	duplicate_result = copy.copy(result)
@@ -100,17 +111,24 @@ def parse_features(result):
 		# namespaces = pull_namespaces(result)
 		doc = ET.parse(result).getroot()
 
+		print (doc)
+
 		station_name = doc.findall(".//gml:name[@codeSpace='http://xml.fmi.fi/namespace/locationcode/name']", namespaces)[0].text
 		print (station_name)
 		#station_name=""
 
+		# if queryname == 'fmi::observations::weather::daily::timevaluepair' id on joku tday
 		entry = doc.findall(".//wml2:MeasurementTimeseries[@gml:id='obs-obs-1-1-tmon']", namespaces)[0]
 
-		for measurement in entry.iterfind(".//wml2:MeasurementTVP", namespaces):
-			temp_measurements['time'].append(measurement.find("wml2:time", namespaces).text)
-			temp_measurements['value'].append(measurement.find("wml2:value", namespaces).text)
-			#print (time, value)
-		return (temp_measurements, station_name)
+		if entry:
+			for measurement in entry.iterfind(".//wml2:MeasurementTVP", namespaces):
+				temp_measurements['time'].append(measurement.find("wml2:time", namespaces).text)
+				temp_measurements['value'].append(measurement.find("wml2:value", namespaces).text)
+				#print (time, value)
+			return (temp_measurements, station_name)
+		else:
+			# if queryname == 'fmi::observations::weather::daily::timevaluepair' parse myös maxvalue ja minvalue
+			return
 
 	except Exception as e:
 		print ('GML parse error', e)
@@ -118,7 +136,7 @@ def parse_features(result):
 def frame_data(data):
 	try:
 		df = pd.DataFrame.from_records(data)
-		df['value'] = df['value'].apply(pd.to_numeric)
+		df['value'] = df['value'].apply(pd.to_numeric, errors='coerce')
 		df['time'] = df['time'].apply(pd.to_datetime)
 		return df
 
@@ -126,18 +144,22 @@ def frame_data(data):
 	except Exception as e:
 		print ('Error pandas data frame', e)
 
-def fetch_dataframe(station='station', **kwargs):
+def fetch_dataframe(station='station', starttime='starttime', endtime='endtime', **kwargs):
 
 	print (kwargs)
 	apikey = get_apikey(apikey_filename)
 	wfs_connection = init_connection(apikey)
 
+	if starttime:
+		storedqueryparams['starttime'] = starttime + 'T00:00:00Z'
+
+	if endtime:
+		storedqueryparams['endtime'] = endtime + 'T00:00:00Z'
+
 	try:
 		for fmisid in [station]:
 			if env_test == False:
-
 				storedqueryparams['fmisid'] = str(fmisid)
-
 				print (storedqueryparams)
 				result = get_features(wfs_connection, storedqueryparams)
 				# print (result)
@@ -148,10 +170,15 @@ def fetch_dataframe(station='station', **kwargs):
 				temp_measurements_data = test_data
 				#print (temp_measurements_data)
 
-		dfd = frame_data(temp_measurements_data)
-		dfd['name'] = station_name
-		print (dfd.describe(include='all'))
-		return dfd
+		if len(temp_measurements_data) > 0:
+			print (temp_measurements_data)
+			dfd = frame_data(temp_measurements_data)
+			dfd['name'] = station_name
+			print (dfd.describe(include='all'))
+			return dfd
+		else:
+			print ('no data')
+			return
 
 	except Exception as e:
 		print ('Error', e)
@@ -176,19 +203,23 @@ if __name__ == "__main__":
 	dest='daily', action='store_true')
 
 	parser.add_argument('-b','--begin',
-	help="havaintosarjan ensimmäinen päivä mm-dd-yyyy muodossa",
+	help="havaintosarjan ensimmäinen päivä yyyy-mm-dd muodossa",
 	dest='starttime', required=False)
 
 	parser.add_argument('-e','--end',
-	help="havaintosarjan viimeinen päivä mm-dd-yyyy muodossa (oletus tänään)",
+	help="havaintosarjan viimeinen päivä yyyy-mm-dd muodossa (oletus tänään)",
 	dest='endtime', required=False)
 
 	args = vars(parser.parse_args())
 	print (args)
 
 	df = fetch_dataframe(**args)
-	df.to_pickle("./tmp/dummy.pkl")
 
+	try:
+		if df is not None:
+			df.to_pickle("./tmp/dummy.pkl")
+	except Exception as e:
+		print ('Error', e)
 
 
 

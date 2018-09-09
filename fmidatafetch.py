@@ -57,6 +57,8 @@ storedqueryparams['endtime'] = str(date.today())
 
 query_specs = {}
 
+# just for inspiration this could be class FmiObservationDataFrame
+
 def get_apikey(filename):
     try:
         with open(apikey_filename, 'r') as f:
@@ -171,7 +173,7 @@ def fetch_dataframe(station='station', starttime='starttime', endtime='endtime',
 				#print (temp_measurements_data)
 
 		if len(temp_measurements_data) > 0:
-			print (temp_measurements_data)
+			#print (temp_measurements_data)
 			dfd = frame_data(temp_measurements_data)
 			dfd['name'] = station_name
 			print (dfd.describe(include='all'))
@@ -183,8 +185,7 @@ def fetch_dataframe(station='station', starttime='starttime', endtime='endtime',
 	except Exception as e:
 		print ('Error', e)
 
-if __name__ == "__main__":
-
+def argparser():
 	parser = argparse.ArgumentParser(
     description="havaintojen aikasarjat Ilmatieteen laitoksen WFS-rajapinnasta", prog='fmidatafetch'
     )
@@ -199,7 +200,7 @@ if __name__ == "__main__":
 	dest='monthly', action='store_true', default=True)
 
 	parser.add_argument('-d','--dd',
-	help="lataa paivahavainnot",
+	help="lataa päivähavainnot",
 	dest='daily', action='store_true')
 
 	parser.add_argument('-b','--begin',
@@ -209,15 +210,20 @@ if __name__ == "__main__":
 	parser.add_argument('-e','--end',
 	help="havaintosarjan viimeinen päivä yyyy-mm-dd muodossa (oletus tänään)",
 	dest='endtime', required=False)
+	return vars(parser.parse_args())
 
-	args = vars(parser.parse_args())
+if __name__ == "__main__":
+
+	args = argparser()
 	print (args)
-
 	df = fetch_dataframe(**args)
 
 	try:
 		if df is not None:
-			df.to_pickle("./tmp/dummy.pkl")
+			filename = './tmp/' + str(args['station']) + '-' + df['name'][0].replace(" ", "-") + str(args['starttime']) + '.pkl'
+			print (filename)
+			df.to_pickle(filename)
+			df.to_pickle('./tmp/dummy.pkl') # for easier testing save with dummy name
 	except Exception as e:
 		print ('Error', e)
 

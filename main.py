@@ -10,7 +10,7 @@ import datetime
 from fmidatafetch import *
 from bokeh.plotting import figure, output_file, show, save
 from bokeh.models import ColumnDataSource, MonthsTicker, LinearAxis, DatetimeTicker, Range1d
-from bokeh.palettes import Spectral11, Spectral6, Spectral10,RdBu11
+from bokeh.palettes import Spectral11, Spectral6, Spectral10, RdBu11
 from bokeh.transform import linear_cmap
 
 #env_test = True
@@ -18,10 +18,12 @@ env_test = False
 
 if __name__ == "__main__":
 
-	df = pd.read_pickle("./tmp/dummy.pkl")
-	#df = fetch_dataframe()
+	#df = pd.read_pickle("./tmp/dummy.pkl")
 
-	print (df.describe(include='all'))
+	args = argparser()
+	print (args)
+	df = fetch_dataframe(**args)
+
 	output_file("x.html")
 
 	source = ColumnDataSource(df)

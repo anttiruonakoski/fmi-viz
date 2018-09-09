@@ -12,7 +12,6 @@ from owslib.wfs import WebFeatureService
 import xml.etree.ElementTree as ET
 import pandas as pd
 #from lxml import etree #lxml why u no accept iostring?
-#from io import StringIO, BytesIO
 #import copy
 #from pprint import pprint
 import argparse
@@ -55,8 +54,6 @@ storedquery_used = storedquery_monthly
 storedqueryparams = {'starttime' : '2015-01-01T00:00:00Z', 'fmisid': '101933'}
 storedqueryparams['endtime'] = str(date.today())
 
-query_specs = {}
-
 # just for inspiration this could be class FmiObservationDataFrame
 
 def get_apikey(filename):
@@ -72,7 +69,7 @@ def init_connection(apikey):
 		print ('connection ok')
 		return c
 	except Exception as e:
-		print ('error in WFS connection', e)
+		print ('error in WFS connection ', e)
 
 def calculate_parts(maxinterval='storedquery_used.maxinterval', starttime='starttime', endtime='endtime', *args):
 	if maxinterval < int(hours(starttime - endtime)):
@@ -95,7 +92,7 @@ def get_features(connection, storedqueryparams):
 		#<ExceptionText>No more than 87600.000000 hours allowed.</ExceptionText>
 
 	except Exception as e:
-		print ('error getting WFS features', wfs_connection, storedquery_used.queryname, storedqueryparams, e)
+		print ('error getting WFS features ', wfs_connection, storedquery_used.queryname, storedqueryparams, e)
 
 def pull_namespaces(result):
 	duplicate_result = copy.copy(result)
@@ -148,7 +145,6 @@ def frame_data(data):
 
 def fetch_dataframe(station='station', starttime='starttime', endtime='endtime', **kwargs):
 
-	print (kwargs)
 	apikey = get_apikey(apikey_filename)
 	wfs_connection = init_connection(apikey)
 
@@ -198,7 +194,7 @@ def argparser():
 	parser.add_argument('-m','--mm',
 	help="lataa kuukausihavainnot (oletus)",
 	dest='monthly', action='store_true', default=True)
-
+	# fix these mutually excluding
 	parser.add_argument('-d','--dd',
 	help="lataa päivähavainnot",
 	dest='daily', action='store_true')
@@ -225,7 +221,7 @@ if __name__ == "__main__":
 			df.to_pickle(filename)
 			df.to_pickle('./tmp/dummy.pkl') # for easier testing save with dummy name
 	except Exception as e:
-		print ('Error', e)
+		print ('Error ', e)
 
 
 

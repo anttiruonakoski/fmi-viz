@@ -2,3 +2,4 @@ apikey
 .tmp
 example*.xml
 __pycache__
+tmp/*

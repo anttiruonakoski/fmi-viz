@@ -6,14 +6,16 @@ __author__ = "Antti Ruonakoski"
 __license__ = "GPL"
 '''
 
-env_test = True
+env_test = False
 
 from owslib.wfs import WebFeatureService
 import xml.etree.ElementTree as ET
 import pandas as pd
 #from lxml import etree #lxml why u no accept iostring?
 #from io import StringIO, BytesIO
-import copy
+#import copy
+#from pprint import pprint
+import argparse
 
 apikey_filename = 'apikey'
 
@@ -22,10 +24,35 @@ test_data = {
 			'value': ['2.1','-3.0','-7.5','-9.6','-13.5','-8.3','1.6']
 			}
 
+namespaces = {
+'gco': 'http://www.isotc211.org/2005/gco',
+'gmd': 'http://www.isotc211.org/2005/gmd',
+'gml': 'http://www.opengis.net/gml/3.2',
+'gmlcov': 'http://www.opengis.net/gmlcov/1.0',
+'om': 'http://www.opengis.net/om/2.0',
+'ompr': 'http://inspire.ec.europa.eu/schemas/ompr/3.0',
+'omso': 'http://inspire.ec.europa.eu/schemas/omso/3.0',
+'sam': 'http://www.opengis.net/sampling/2.0',
+'sams': 'http://www.opengis.net/samplingSpatial/2.0',
+'swe': 'http://www.opengis.net/swe/2.0',
+'target': 'http://xml.fmi.fi/namespace/om/atmosphericfeatures/1.0',
+'wfs': 'http://www.opengis.net/wfs/2.0',
+'wml2': 'http://www.opengis.net/waterml/2.0',
+'xlink': 'http://www.w3.org/1999/xlink',
+'xsi': 'http://www.w3.org/2001/XMLSchema-instance'
+}
+
 stations = ['100949']
 #stations = ['101920', '101933', '101065','100949']
-storedqueryid = 'fmi::observations::weather::monthly::timevaluepair'
-storedqueryparams = {'fmisid' : '100949', 'starttime' : '2010-01-01T00:00:00Z'}
+storedquery_monthly = 'fmi::observations::weather::monthly::timevaluepair'
+storedquery_daily = 'fmi::observations::weather::daily::timevaluepair'
+
+# some sane defaults
+storedqueryparams = {'starttime' : '2015-01-01T00:00:00Z', 'fmisid': '101933'}
+
+storedqueryid = storedquery_monthly
+
+query_specs = {}
 
 def get_apikey(filename):
     try:
@@ -34,9 +61,7 @@ def get_apikey(filename):
     except FileNotFoundError:
         print("'%s' file not found" % filename)
 
-apikey = get_apikey(apikey_filename)
-
-def init_connection():
+def init_connection(apikey):
 	try:
 		c = WebFeatureService(url='http://data.fmi.fi/fmi-apikey/' + apikey + '/wfs', version='2.0.0')
 		print ('connection ok')
@@ -44,7 +69,7 @@ def init_connection():
 	except Exception as e:
 		print ('error in WFS connection', e)
 
-def get_features(connection, station):
+def get_features(connection, storedqueryparams):
 	try:
 		r = connection.getfeature(storedQueryID = storedqueryid, storedQueryParams = storedqueryparams)
 		#(storedQueryID='fmi::observations::weather::monthly::simple', storedQueryParams={'fmisid':'101928'}
@@ -59,29 +84,33 @@ def get_features(connection, station):
 	except Exception as e:
 		print ('error getting WFS features', wfs_connection, storedqueryid, storedqueryparams, e)
 
-def parse_features(result, station):
+def pull_namespaces(result):
+	duplicate_result = copy.copy(result)
+	ns = dict([node for _, node in ET.iterparse(duplicate_result, events=['start-ns'])])
+	return ns
+
+def parse_features(result):
 
 	temp_measurements = {
 						'time': [],
 						'value': []
 						}
-
 	try:
-		duplicate_result = copy.copy(result)
-		namespaces = dict([node for _, node in ET.iterparse(duplicate_result, events=['start-ns'])])
-		print ('all namespaces in document\n', namespaces)
-
+		# handled by dict
+		# namespaces = pull_namespaces(result)
 		doc = ET.parse(result).getroot()
 
-		location_name=""
+		station_name = doc.findall(".//gml:name[@codeSpace='http://xml.fmi.fi/namespace/locationcode/name']", namespaces)[0].text
+		print (station_name)
+		#station_name=""
 
 		entry = doc.findall(".//wml2:MeasurementTimeseries[@gml:id='obs-obs-1-1-tmon']", namespaces)[0]
 
 		for measurement in entry.iterfind(".//wml2:MeasurementTVP", namespaces):
 			temp_measurements['time'].append(measurement.find("wml2:time", namespaces).text)
 			temp_measurements['value'].append(measurement.find("wml2:value", namespaces).text)
-#			print (time, value)
-		return temp_measurements
+			#print (time, value)
+		return (temp_measurements, station_name)
 
 	except Exception as e:
 		print ('GML parse error', e)
@@ -97,25 +126,71 @@ def frame_data(data):
 	except Exception as e:
 		print ('Error pandas data frame', e)
 
+def fetch_dataframe(station='station', **kwargs):
+
+	print (kwargs)
+	apikey = get_apikey(apikey_filename)
+	wfs_connection = init_connection(apikey)
+
+	try:
+		for fmisid in [station]:
+			if env_test == False:
+
+				storedqueryparams['fmisid'] = str(fmisid)
+
+				print (storedqueryparams)
+				result = get_features(wfs_connection, storedqueryparams)
+				# print (result)
+				parsed_data = parse_features(result)
+				temp_measurements_data = parsed_data[0]
+				station_name = parsed_data[1]
+			else:
+				temp_measurements_data = test_data
+				#print (temp_measurements_data)
+
+		dfd = frame_data(temp_measurements_data)
+		dfd['name'] = station_name
+		print (dfd.describe(include='all'))
+		return dfd
+
+	except Exception as e:
+		print ('Error', e)
 
 if __name__ == "__main__":
 
-	wfs_connection = init_connection()
-	for station in stations:
-		if not env_test:
-			result = get_features(wfs_connection, station)
-			temp_measurements_data = parse_features(result, station)
-		else:
-			temp_measurements_data = test_data
-			print (temp_measurements_data)
+	parser = argparse.ArgumentParser(
+    description="havaintojen aikasarjat Ilmatieteen laitoksen WFS-rajapinnasta", prog='fmidatafetch'
+    )
 
-		df = pd.DataFrame.from_records(temp_measurements_data)
-		df['value'] = df['value'].apply(pd.to_numeric)
-		df['time'] = df['time'].apply(pd.to_datetime)
-		#df = pd.DataFrame.from_dict(temp_measurements_data, dtype = 'float64')
-		#data1 = pd.Series(parse_features(result, station), dtype = 'float64')
-		#data2 = pd.to_numeric(pd.Series(parse_features(result, station)), errors = 'coerce')
-		#print (df.describe(include='all'))
+	parser.add_argument(
+	type=int,
+	help="säähavaintoaseman koodi",
+	dest='station')
+
+	parser.add_argument('-m','--mm',
+	help="lataa kuukausihavainnot (oletus)",
+	dest='monthly', action='store_true', default=True)
+
+	parser.add_argument('-d','--dd',
+	help="lataa paivahavainnot",
+	dest='daily', action='store_true')
+
+	parser.add_argument('-b','--begin',
+	help="havaintosarjan ensimmäinen päivä mm-dd-yyyy muodossa",
+	dest='starttime', required=False)
+
+	parser.add_argument('-e','--end',
+	help="havaintosarjan viimeinen päivä mm-dd-yyyy muodossa (oletus tänään)",
+	dest='endtime', required=False)
+
+	args = vars(parser.parse_args())
+	print (args)
+
+	df = fetch_dataframe(**args)
+	df.to_pickle("./tmp/dummy.pkl")
+
+
+
 
 
 
